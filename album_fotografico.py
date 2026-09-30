@@ -5,49 +5,62 @@ from foto import Foto
 def carica_da_file(file_path):
     """Carica le foto dal file, creando un nuovo anno ogni volta che compare per la prima volta"""
     try:
-        album=[]
+        album = []
+        anni_mappati = {}
+
         with open(file_path, "r", encoding="utf-8") as f:
-            reader=csv.reader(f)
-            header=next(reader, None) #salta prima riga per intestazione
-
+            reader = csv.reader(f)
+            header = True
             for riga in reader:
-                if len(riga)==5:
-                    codice, titolo, autore, mese, anno = riga
-                    foto=Foto(
-                        codice.strip(),
-                        titolo.strip(),
-                        autore.strip(),
-                        int(mese),
-                        int(anno)
-                    )
+                if not riga:
+                    continue
 
-                    #trova la lista corrispondente all anno o ne crea una nuova
-                    sezione_anno=_trova_o_crea_anno(album, foto.anno)
-                    sezione_anno.append(foto)
-        print(f'File"{file_path}"caricato correttamente\n')
+                if header and (riga[0].strip().lower() == "codice" or not riga[3].strip().isdigit()):
+                    header = False
+                    continue
+                header = False
+
+                if len(riga) == 5:
+                    codice, titolo, autore, mese, anno = riga
+                    mese_int = int(mese)
+                    anno_int = int(anno)
+
+                    if not (1 <= mese_int <= 12):
+                        continue
+
+                    if anno_int not in anni_mappati:
+                        anni_mappati[anno_int] = len(album)
+                        album.append({
+                            'anno': anno_int,
+                            'foto': []
+                        })
+
+                    foto = Foto(codice.strip(), titolo.strip(), autore.strip(), mese_int, anno_int)
+                    indice_album = anni_mappati[anno_int]
+                    album[indice_album]['foto'].append(foto)
+
+        album = sorted(album, key=lambda x: x['anno'])
+
+        print(f'File "{file_path}" caricato correttamente!\n')
         return album
+
     except FileNotFoundError:
         print(f"Errore: il file {file_path} non esiste.")
         return None
 
 
-
-
-
-def _trova_o_crea_anno(album, anno):
-    """Funzione interna per cercare la lista di foto di un determinato anno o crearne una nuova"""
-    for sezione in album:
-        if sezione and sezione[0].anno==anno:
-            return sezione
-        #Se la sezione dell'album contiene almeno una foto
-        # E l'anno della prima foto è uguale all'anno cercato,
-        # allora trovato il gruppo di foto di quell'anno.
+def _trova_foto(album, codice):
+    for gruppo in album:
+        for foto in gruppo['foto']:
+            if foto.codice == codice:
+                return foto
+    return None
 
 def aggiungi_foto(album, codice, titolo, autore, mese, anno, file_path):
     """Aggiunge una foto all'album, creando l'anno al volo se non è ancora presente"""
 
     #Validazione mese
-    if mese<1 and mese>12:
+    if not (1<=mese<=12):
         return None
 
     # Non aggiungere se esiste già una foto con lo stesso codice
@@ -57,8 +70,18 @@ def aggiungi_foto(album, codice, titolo, autore, mese, anno, file_path):
     #Se la foto viene trovata (quindi la funzione non ha restituito None)
 
     foto=Foto(codice, titolo, autore, mese, anno)
-    sezione_anno=_trova_o_crea_anno(album, anno)
-    sezione_anno.append(foto)
+    gruppo_anno=None
+    for gruppo in album:
+        if gruppo['anno']==anno:
+            gruppo_anno=gruppo
+            break
+
+    if gruppo_anno is None:
+        gruppo_anno={'anno':anno, 'foto':[]}
+        album.append(gruppo)
+        album.sort(key=lambda x: x['anno'])
+
+    gruppo_anno['foto'].append(foto)
 
     try:
         with open(file_path, "a", encoding="utf-8") as f:
@@ -66,34 +89,37 @@ def aggiungi_foto(album, codice, titolo, autore, mese, anno, file_path):
             writer.writerow([foto.codice, foto.titolo, foto.autore, foto.mese, foto.anno])
         print(f"file aggiornato con la nuova foto\n")
     except FileNotFoundError:
-        sezione_anno.remove(foto)
-        if len(sezione_anno)==0:
-            album.remove(sezione_anno)
-        print(f"errore: impossibile aggiornare il file {file_path} perchè non esiste")
+        gruppo_anno['foto'].remove(foto)
+        if not gruppo_anno['foto']:
+            album.remove(gruppo_anno)
+        print(f"Errore: impossibile aggiornare il file {file_path} perché non esiste.")
         return None
-        #rimuove la foto inserita se il salvataggio su file fallisce
+    return foto
 
 
 
 def cerca_foto(album, codice):
     """Cerca una foto nell'album dato il codice"""
-    for sezione in album:
-        for foto in sezione:
-            if foto.codice==codice:
-                return f"{foto.codice},{foto.titolo},{foto.autore},{foto.mese},{foto.anno}"
+    foto = _trova_foto(album, codice)
+    if foto is not None:
+        return f"{foto.codice}, {foto.titolo}, {foto.autore}, {foto.mese}, {foto.anno}"
     return None
 
 
 
 def elenco_foto_anno_per_titolo(album, anno):
     """Ordina i titoli delle foto di un dato anno in ordine alfabetico"""
-    for sezione in album:
-        if sezione and sezione[0].anno==anno:
-            titoli=[foto.titolo for foto in sezione]
-            return sorted(titoli)
-    #Prende ogni oggetto foto presente all'interno della sezione trovata.
-    #Estrae l'attributo .titolo di ciascuna foto.
-    #Crea una nuova lista contenente solo i titoli
+    gruppo_anno = None
+    for gruppo in album:
+        if gruppo['anno'] == anno:
+            gruppo_anno = gruppo
+            break
+
+    if gruppo_anno is None:
+        return None
+
+    titoli = [foto.titolo for foto in gruppo_anno['foto']]
+    return sorted(titoli)
 
 
 def main():
